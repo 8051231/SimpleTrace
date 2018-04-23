@@ -8,6 +8,8 @@
 #include "SimpleTrace.h"
 #include <Windows.h>
 
+#include <tchar.h>
+
 const char *pStrPipeName = "\\\\.\\pipe\\Name_pipe_demon_get";
 const int BUFFER_MAX_LEN = 1024;
 char buf[BUFFER_MAX_LEN];
@@ -15,18 +17,24 @@ HANDLE hPipe = NULL;
 
 int SimpleTrace::fifo_write(uint32_t pc)
 {
-	char pbuf[4] = {0};
+	unsigned char pbuf[4] = {0};
 	DWORD dwLen = 0;
 	memcpy(&pbuf[0], &pc, 4);
+
+
 	//向服务端发送数据  
+	printf("before client write data to serverpipe\n");
 	if (WriteFile(hPipe, pbuf, 4, &dwLen, NULL)) 
 	{
-		printf("SimpleTrace Data write to %d bytes\n", dwLen);
+		printf("client write data to server pipe  %d bytes, 0x%08x\n", dwLen, pc);
+
 	}
 	else
 	{
-		printf("SimpleTrace Data write failed\n");
+		printf("client write data to server pipe failed\n");
 	}
+//	FlushFileBuffers(hPipe);
+	printf("client write data to server success\n");
 	//Sleep(1000);
 	/*
 	printf("请输入要向服务端发送的数据，回车键结束，最大1024个字节\n");
@@ -56,8 +64,12 @@ int SimpleTrace::fifo_init()
 		printf("Error! Connection to Get failure\n");
 		return 0;
 	}
-	hPipe = CreateFile(pStrPipeName, GENERIC_WRITE, 0,
+	printf("before CreateFile\n");
+	hPipe = CreateFile(pStrPipeName, GENERIC_READ | GENERIC_WRITE, 0,
 		NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	printf("after CreateFile\n");
+
+
 	/*
 
 	while (true)
@@ -207,10 +219,53 @@ void SimpleTrace::TracePC(const MTI::EventClass *event_class,
 {
     uint32_t pc = record->Get<uint32_t>(event_class, inst_pc_index);
 
-	//Sleep(5000);
+
     printf("SimpleTrace------------PC: 0x%08x\n", pc);
+
+	//FILE *fp;
+	//fp = fopen("D:\\a.txt", "a+");
+	//if (fp == 0) { printf("can't open file\n"); }
+	//fprintf(fp, "%08x   ", pc);  //字符使用%c
+	
+
+
 	//add by cxl begin
 	fifo_write(pc);
+
+	//fprintf(fp, "EXIT\n", pc);  //字符使用%c
+    //fclose(fp);
+	//等待回馈
+
+	uint32_t pc1 = 0;
+	int ret = 0;
+	DWORD dwLen = 0;
+	char buf[4] = { 0 };
+	dwLen = 0;
+	BOOL fSuccess = FALSE;
+
+	printf("client wait for server pipe response---------------\n");
+	fSuccess = ReadFile(hPipe, buf, 4, &dwLen, NULL);
+
+	if (!fSuccess || dwLen == 0)
+	{
+		if (GetLastError() == ERROR_BROKEN_PIPE)
+		{
+			_tprintf(TEXT("InstanceThread: client disconnected.\n"), GetLastError());
+		}
+		else
+		{
+			_tprintf(TEXT("InstanceThread ReadFile failed, GLE=%d.\n"), GetLastError());
+		}
+	
+	}
+
+	pc1 = (buf[3] << 24) | (buf[2] << 16) | (buf[1] << 8) | (buf[0]);
+	printf("client receive data from the server pipe %d bytes,contents are:0x%08x\n", dwLen, pc1);
+	Sleep(100);
+
+	
+
+//	Sleep(1000);
 	//add by cxl end  
 }
 
