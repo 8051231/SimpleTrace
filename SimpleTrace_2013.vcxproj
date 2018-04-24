@@ -232,6 +232,7 @@
       <HeapReserveSize>16000000</HeapReserveSize>
       <StackReserveSize>8000000</StackReserveSize>
       <StackCommitSize>8000000</StackCommitSize>
+      <AdditionalOptions>Ws2_32.lib %(AdditionalOptions)</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>

@@ -47,6 +47,7 @@ public:
 
     int fifo_init();
 	int fifo_write(uint32_t pc);
+	int fifo_recv(uint32_t pc);
 
 public: // methods
     MTI::EventClass *event_class;

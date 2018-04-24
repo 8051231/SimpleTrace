@@ -9,51 +9,126 @@
 #include <Windows.h>
 
 #include <tchar.h>
+#include <winsock.h>
 
 const char *pStrPipeName = "\\\\.\\pipe\\Name_pipe_demon_get";
 const int BUFFER_MAX_LEN = 1024;
-char buf[BUFFER_MAX_LEN];
+
 HANDLE hPipe = NULL;
+
+void print_data_syslog(char *msg, void * data, unsigned short len)
+{
+	if (msg == NULL || data == NULL || len < 1)
+	{
+		return;
+	}
+	unsigned char * pbuf = (unsigned char*)data;
+
+		int i = 0;
+		int j = 0;
+
+		char tmp_buff[1024] = { 0 };
+
+		for (j = 0; j < len;)
+		{
+			memset(tmp_buff, 0, sizeof(tmp_buff));
+
+			for (i = 0; i < sizeof(tmp_buff) - 3 && j < len; j++)
+			{
+				sprintf(tmp_buff + i, "%02x ", pbuf[j]);
+				i = strlen(tmp_buff);
+			}
+
+			printf("%s%s\n", msg,tmp_buff);
+		}
+
+}
+
+void  PrintHex(char *msg, void * data, unsigned short len)
+{
+	print_data_syslog(msg, data, len);
+}
+
+int SimpleTrace::fifo_recv(uint32_t pc)
+{
+	uint32_t nRetPC = 0;
+	int ret = 0;
+	DWORD nRcvLen = 0;
+	unsigned char sRcvbuf[4] = { 0 };
+	nRcvLen = 0;
+	BOOL fSuccess = FALSE;
+
+	printf("client wait for server pipe response---------------\n");
+	fSuccess = ReadFile(hPipe, sRcvbuf, 4, &nRcvLen, NULL);
+
+	if (!fSuccess || nRcvLen == 0)
+	{
+		if (GetLastError() == ERROR_BROKEN_PIPE)
+		{
+			_tprintf(TEXT("client disconnected.\n"), GetLastError());
+		}
+		else
+		{
+			_tprintf(TEXT("client ReadFile failed, GLE=%d.\n"), GetLastError());
+		}
+		return -1;
+	}
+
+	PrintHex("Client_rcv: ", sRcvbuf, nRcvLen);
+	nRetPC = (sRcvbuf[3] << 24) | (sRcvbuf[2] << 16) | (sRcvbuf[1] << 8) | (sRcvbuf[0]);
+	printf("client receive data from the server pipe %d bytes,contents are:0x%08x\n", nRcvLen, nRetPC);
+	//Sleep(100);
+
+	if (pc == nRetPC)
+	{
+
+		printf("client send->server rcv->server->send->client rcv success\n");
+	}
+	else
+	{
+
+		printf("client send->server rcv->server send->client rcv failed\n");
+		return -1;
+	}
+	printf("client recieve data from server pipe success\n");
+	return 0;
+}
 
 int SimpleTrace::fifo_write(uint32_t pc)
 {
-	unsigned char pbuf[4] = {0};
-	DWORD dwLen = 0;
+
+	DWORD nSendLen = 0;
+	unsigned char pbuf[4] = { 0 };
+	BOOL fSuccess = FALSE;
+
 	memcpy(&pbuf[0], &pc, 4);
 
-
 	//向服务端发送数据  
-	printf("before client write data to serverpipe\n");
-	if (WriteFile(hPipe, pbuf, 4, &dwLen, NULL)) 
-	{
-		printf("client write data to server pipe  %d bytes, 0x%08x\n", dwLen, pc);
+	printf("client write data to server pipe begin\n");
 
+	fSuccess = WriteFile(hPipe, pbuf, 4, &nSendLen, NULL);
+    if (!fSuccess || nSendLen == 0)
+	{
+		if (GetLastError() == ERROR_BROKEN_PIPE)
+		{
+			_tprintf(TEXT("client disconnected.\n"), GetLastError());
+		}
+		else
+		{
+			_tprintf(TEXT("client ReadFile failed, GLE=%d.\n"), GetLastError());
+		}
+		return -1;
 	}
 	else
 	{
-		printf("client write data to server pipe failed\n");
+		printf("client write data to server pipe  %d bytes, 0x%08x\n", nSendLen, pc);
 	}
-//	FlushFileBuffers(hPipe);
-	printf("client write data to server success\n");
+
+	PrintHex("Client_send: ", pbuf, nSendLen);
+
+    //FlushFileBuffers(hPipe);
+	printf("client write data to server success finished\n");
 	//Sleep(1000);
-	/*
-	printf("请输入要向服务端发送的数据，回车键结束，最大1024个字节\n");
-	DWORD dwLen = 0;
-	int bufSize;
-	for (bufSize = 0; bufSize < BUFFER_MAX_LEN; bufSize++) {
-		buf[bufSize] = getchar();
-		if (buf[bufSize] == '\n') break;
-	}
-	//向服务端发送数据  
-	if (WriteFile(hPipe, buf, bufSize, &dwLen, NULL)) {
-		printf("数据写入完毕共%d字节\n", dwLen);
-	}
-	else
-	{
-		printf("数据写入失败\n");
-	}
-	Sleep(1000);
-	*/
 	return 0;
 }
 int SimpleTrace::fifo_init()
@@ -61,38 +136,14 @@ int SimpleTrace::fifo_init()
 	printf("plug-in begins to wait...\n");
 	if (!WaitNamedPipe(pStrPipeName, NMPWAIT_WAIT_FOREVER))
 	{
-		printf("Error! Connection to Get failure\n");
+		printf("client Error! Connection to Get failure\n");
 		return 0;
 	}
-	printf("before CreateFile\n");
+	printf("client CreateFile begin\n");
 	hPipe = CreateFile(pStrPipeName, GENERIC_READ | GENERIC_WRITE, 0,
 		NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-	printf("after CreateFile\n");
+	printf("client CreateFile finish\n");
 
-
-	/*
-
-	while (true)
-	{
-		printf("请输入要向服务端发送的数据，回车键结束，最大1024个字节\n");
-		DWORD dwLen = 0;
-		int bufSize;
-		for (bufSize = 0; bufSize < BUFFER_MAX_LEN; bufSize++) {
-			buf[bufSize] = getchar();
-			if (buf[bufSize] == '\n') break;
-		}
-		//向服务端发送数据  
-		if (WriteFile(hPipe, buf, bufSize, &dwLen, NULL)) {
-			printf("数据写入完毕共%d字节\n", dwLen);
-		}
-		else
-		{
-			printf("数据写入失败\n");
-		}
-		Sleep(1000);
-	}
-	CloseHandle(hPipe);
-	*/
 	return 0;
 }
 
@@ -222,50 +273,42 @@ void SimpleTrace::TracePC(const MTI::EventClass *event_class,
 
     printf("SimpleTrace------------PC: 0x%08x\n", pc);
 
+	//add by cxl begin
 	//FILE *fp;
 	//fp = fopen("D:\\a.txt", "a+");
 	//if (fp == 0) { printf("can't open file\n"); }
 	//fprintf(fp, "%08x   ", pc);  //字符使用%c
-	
 
-
-	//add by cxl begin
-	fifo_write(pc);
-
+	//将pc值通过管道发送给服务端
+	int nRet = 0;
+	nRet = fifo_write(pc);
+	if (nRet != 0)
+	{
+		printf("client fifo_write to server pipe failed, exit\n");
+		if (NULL != hPipe)
+		{
+			CloseHandle(hPipe);
+			hPipe = NULL;
+		}
+		
+		exit(1);
+	}
 	//fprintf(fp, "EXIT\n", pc);  //字符使用%c
     //fclose(fp);
 	//等待回馈
 
-	uint32_t pc1 = 0;
-	int ret = 0;
-	DWORD dwLen = 0;
-	char buf[4] = { 0 };
-	dwLen = 0;
-	BOOL fSuccess = FALSE;
-
-	printf("client wait for server pipe response---------------\n");
-	fSuccess = ReadFile(hPipe, buf, 4, &dwLen, NULL);
-
-	if (!fSuccess || dwLen == 0)
+	nRet = fifo_recv(pc);
+	if (nRet != 0)
 	{
-		if (GetLastError() == ERROR_BROKEN_PIPE)
+		printf("client fifo_recv from server pipe failed, exit\n");
+		if (NULL != hPipe)
 		{
-			_tprintf(TEXT("InstanceThread: client disconnected.\n"), GetLastError());
+			CloseHandle(hPipe);
+			hPipe = NULL;
 		}
-		else
-		{
-			_tprintf(TEXT("InstanceThread ReadFile failed, GLE=%d.\n"), GetLastError());
-		}
-	
+		exit(1);
 	}
-
-	pc1 = (buf[3] << 24) | (buf[2] << 16) | (buf[1] << 8) | (buf[0]);
-	printf("client receive data from the server pipe %d bytes,contents are:0x%08x\n", dwLen, pc1);
-	Sleep(100);
-
-	
-
-//	Sleep(1000);
+    //	Sleep(1000);
 	//add by cxl end  
 }
 
